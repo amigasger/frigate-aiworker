@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import os
 from enum import Enum
 
@@ -76,6 +78,11 @@ class CameraConfig(FrigateBaseModel):
         return values
 
     enabled: bool = Field(default=True, title="Enabled", description="Enabled")
+    worker: str | None = Field(
+        default=None,
+        title="AI Worker Node",
+        description="Optional named worker node used for AI detection and stream management. When unset, Frigate uses the local/default runtime.",
+    )
 
     # Options with global fallback
     audio: AudioConfig = Field(
@@ -230,8 +237,6 @@ class CameraConfig(FrigateBaseModel):
             if "audio" in existing_roles:
                 config["ffmpeg"]["inputs"][0]["roles"].append("audio")
 
-            # kept so role validation can report the real problem rather than
-            # claiming the role was never assigned
             if "record_sub" in existing_roles:
                 config["ffmpeg"]["inputs"][0]["roles"].append("record_sub")
 
@@ -250,7 +255,6 @@ class CameraConfig(FrigateBaseModel):
         return self._ffmpeg_cmds
 
     def get_formatted_name(self) -> str:
-        """Return the friendly name if set, otherwise return a formatted version of the camera name."""
         if self.friendly_name:
             return self.friendly_name
         return self.name.replace("_", " ").title() if self.name else ""
@@ -261,17 +265,14 @@ class CameraConfig(FrigateBaseModel):
         self._build_ffmpeg_cmds()
 
     def recreate_ffmpeg_cmds(self):
-        """Force regeneration of ffmpeg commands from current config."""
         self._build_ffmpeg_cmds()
 
     def _build_ffmpeg_cmds(self):
-        """Build ffmpeg commands from the current ffmpeg config."""
         ffmpeg_cmds = []
         for ffmpeg_input in self.ffmpeg.inputs:
             ffmpeg_cmd = self._get_ffmpeg_cmd(ffmpeg_input)
             if ffmpeg_cmd is None:
                 continue
-
             ffmpeg_cmds.append({"roles": ffmpeg_input.roles, "cmd": ffmpeg_cmd})
         self._ffmpeg_cmds = ffmpeg_cmds
 
@@ -286,7 +287,6 @@ class CameraConfig(FrigateBaseModel):
                 self.detect.width,
                 self.detect.height,
             )
-
             ffmpeg_output_args = scale_detect_args + ffmpeg_output_args + ["pipe:"]
 
         if "record" in ffmpeg_input.roles and self.record.enabled:
@@ -297,7 +297,6 @@ class CameraConfig(FrigateBaseModel):
                 )
                 or self.ffmpeg.output_args.record
             )
-
             ffmpeg_output_args = (
                 record_args
                 + [f"{os.path.join(CACHE_DIR, self.name)}@{CACHE_SEGMENT_FORMAT}.mp4"]
@@ -317,7 +316,6 @@ class CameraConfig(FrigateBaseModel):
                 )
                 or sub_output_args
             )
-
             ffmpeg_output_args = (
                 record_args
                 + [
@@ -326,7 +324,6 @@ class CameraConfig(FrigateBaseModel):
                 + ffmpeg_output_args
             )
 
-        # if there aren't any outputs enabled for this input
         if len(ffmpeg_output_args) == 0:
             return None
 
