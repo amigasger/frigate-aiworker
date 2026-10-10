@@ -10,7 +10,7 @@
 <img src="https://hosted.weblate.org/widget/frigate-nvr/language-badge.svg" alt="Translation status" />
 </a>
 
-\[English\] | [简体中文](https://github.com/blakeblackshear/frigate/blob/dev/README_CN.md)
+[English] | [简体中文](https://github.com/blakeblackshear/frigate/blob/dev/README_CN.md)
 
 A complete and local NVR designed for [Home Assistant](https://www.home-assistant.io) with AI object detection. Uses OpenCV and Tensorflow to perform realtime object detection locally for IP cameras.
 
@@ -27,6 +27,35 @@ Use of a GPU or AI accelerator is highly recommended. AI accelerators will outpe
 - Re-streaming via RTSP to reduce the number of connections to your camera
 - WebRTC & MSE support for low-latency live view
 
+## AI Worker Nodes
+
+This fork adds support for assigning a camera to a named AI worker node for remote AI detection and stream management. This is useful when you want to keep the main Frigate instance lean and push compute-heavy detection work to another host.
+
+Example configuration:
+
+```yaml
+workers:
+  ai-node-1:
+    host: 10.0.0.21
+    port: 8971
+
+cameras:
+  front_door:
+    ffmpeg:
+      inputs:
+        - path: rtsp://camera.example/stream
+          roles:
+            - detect
+            - record
+    worker: ai-node-1
+```
+
+Notes:
+
+- `worker` is optional. If unset, Frigate keeps the normal local behavior.
+- `workers` is a generic execution model: a worker node may be used for AI detection, stream management, or other remote compute tasks.
+- A worker reference is validated at config load time; if a camera names a worker that is not configured, the config fails validation.
+
 ## Documentation
 
 View the documentation at https://docs.frigate.video
@@ -39,7 +68,7 @@ If you would like to make a donation to support development, please use [Github 
 
 This project is licensed under the **MIT License**.
 
-- **Code:** The source code, configuration files, and documentation in this repository are available under the [MIT License](LICENSE). You are free to use, modify, and distribute the code as long as you include the original copyright notice.
+- **Code:** The source code, configuration files, and documentation in this repository are available under the [MIT License](LICENSE). You are free to use, modify, and distribute the code as long as the terms of the MIT License are followed.
 - **Trademarks:** The "Frigate" name, the "Frigate NVR" brand, and the Frigate logo are **trademarks of Frigate, Inc.** and are **not** covered by the MIT License.
 
 Please see our [Trademark Policy](TRADEMARK.md) for details on acceptable use of our brand assets.
