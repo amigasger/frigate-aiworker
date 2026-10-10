@@ -10,12 +10,7 @@ class AIWorkerError(RuntimeError):
 
 
 class AIWorkerClient:
-    """Minimal HTTP client for a remote Frigate AI worker node.
-
-    A worker node is treated as a generic execution endpoint for AI detection and
-    stream management. The main Frigate instance can offload work by naming a
-    remote worker in the camera config.
-    """
+    """Minimal HTTP client for communicating with a remote AI worker node."""
 
     def __init__(self, api_url: str, *, timeout: float = 10.0) -> None:
         self.api_url = api_url.rstrip("/")
@@ -26,20 +21,22 @@ class AIWorkerClient:
         return cls(worker_config.get_api_url())
 
     def _request(self, method: str, path: str, **kwargs: Any) -> httpx.Response:
-        url = f"{self.api_url}{path}"
-        request_kwargs = {"timeout": self.timeout, **kwargs}
+        url = f"{self.api_url}{path if path.startswith('/') else '/' + path}"
         try:
-            return httpx.request(method, url, **request_kwargs)
-        except httpx.HTTPError as exc:  # pragma: no cover - defensive
-            raise AIWorkerError(f"Failed to contact AI worker at {url}: {exc}") from exc
+            response = httpx.request(method, url, timeout=self.timeout, **kwargs)
+        except httpx.HTTPError as exc:
+            raise AIWorkerError(f"Failed to call AI worker: {exc}") from exc
+
+        if response.is_error:
+            raise AIWorkerError(
+                f"AI worker request failed: {method.upper()} {url} -> {response.status_code} {response.text}"
+            )
+
+        return response
 
     def healthcheck(self) -> dict[str, Any]:
-        response = self._request("GET", "/api/health")
-        if response.status_code >= 400:
-            raise AIWorkerError(
-                f"AI worker healthcheck failed with status {response.status_code}: {response.text}"
-            )
-        return response.json()
+        resp = self._request("GET", "/api/health")
+        return resp.json() if resp.content else {}
 
     def submit_job(
         self,
@@ -48,29 +45,25 @@ class AIWorkerClient:
         task: str,
         payload: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        response = self._request(
-            "POST",
-            "/api/worker/job",
-            json={"camera": camera, "task": task, "payload": payload or {}},
-        )
-        if response.status_code >= 400:
-            raise AIWorkerError(
-                f"AI worker job submission failed with status {response.status_code}: {response.text}"
-            )
-        try:
-            return response.json()
-        except ValueError as exc:
-            raise AIWorkerError("AI worker returned an invalid JSON response") from exc
+        body: dict[str, Any] = {"camera": camera, "task": task}
+        if payload:
+            body["payload"] = payload
 
-    def stream_url(self, *, camera: str, stream: str = "main") -> str:
-        response = self._request(
+        resp = self._request("POST", "/api/worker/job", json=body)
+        if not resp.content:
+            return {}
+        return resp.json()
+
+    def stream_url(self, *, camera: str, stream: str = "main") -> str | None:
+        resp = self._request(
             "GET",
             "/api/worker/stream",
             params={"camera": camera, "stream": stream},
         )
-        if response.status_code >= 400:
-            raise AIWorkerError(
-                f"AI worker stream request failed with status {response.status_code}: {response.text}"
-            )
-        data = response.json()
-        return data.get("url")
+        if not resp.content:
+            return None
+
+        data = resp.json()
+        if isinstance(data, dict):
+            return data.get("url") or data.get("stream_url")
+        return str(data)
